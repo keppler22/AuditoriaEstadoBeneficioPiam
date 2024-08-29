@@ -1,0 +1,103 @@
+###
+### Autor: Kramer con k de keppler
+### Fecha: 28/08/2024
+###
+import os
+import pandas as pd
+
+# Configuración de opciones de visualización
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
+
+# Verifica la existencia del archivo en la ruta especificada
+file_path = '/content/PIAM_UNICAUCA.xlsx'
+
+if not os.path.isfile(file_path):
+    raise FileNotFoundError(f"{file_path} no encontrado.")
+else:
+    print(f"Archivo {file_path} encontrado.")
+
+# Abre el archivo en modo binario para verificar problemas de acceso
+try:
+    with open(file_path, 'rb') as f:
+        print(f"Archivo {file_path} abierto satisfactoriamente en modo binario.")
+except OSError as e:
+    print(f"Error al abrir el archivo {file_path}: {e}")
+
+# Función para cargar las hojas de trabajo desde el archivo Excel
+def load_excel_sheets(file_path):
+    xls = pd.ExcelFile(file_path, engine='openpyxl')
+    sheet_names = xls.sheet_names
+    print("Nombres de las hojas:", sheet_names)
+
+    sheet_dic = {}
+    for sheet_name in sheet_names:
+        sheet_dic[sheet_name] = pd.read_excel(file_path, sheet_name=sheet_name, engine='openpyxl')
+    return sheet_dic
+
+# Cargar los datos
+sheet_dic = load_excel_sheets(file_path)
+
+# Definir columnas por periodo
+columnas_por_periodo = {
+    'PIAM2022_1': ['ID', 'TELEFONO', 'CELULAR', 'EMAIL_INSTITUCIONAL'],
+    'PIAM2022_2': ['ID', 'TELEFONO', 'CELULAR', 'EMAIL_INSTITUCIONAL'],
+    'PIAM2023_1': ['IDENTIFICACION', 'TELEFONO', 'CELULAR', 'EMAIL_INSTITUCIONAL'],
+    'PIAM2023_2': ['IDENTIFICACION', 'TELEFONO', 'CELULAR', 'EMAIL_INSTITUCIONAL'],
+    'PIAM2024_1DF': ['IDENTIFICACION', 'TELEFONO', 'CELULAR', 'EMAIL_INSTITUCIONAL'],
+}
+
+# Cargar la hoja 'RequerimientoCredito'
+RequerimientoCredito = sheet_dic['RequerimientoCredito']
+
+# Inicializar las columnas a None si no existen
+for col in ['EMAIL_INSTITUCIONAL', 'TELEFONO', 'CELULAR']:
+    if col not in RequerimientoCredito.columns:
+        RequerimientoCredito[col] = None
+
+# Iterar sobre las hojas y realizar el cruce en cascada
+for periodo, columnas in columnas_por_periodo.items():
+    df_periodo = sheet_dic[periodo].copy()
+
+    # Usar la primera columna en 'columnas' como la clave de identificación para el merge
+    identificador = columnas[0]
+
+    # Verificar si el identificador está en df_periodo
+    if identificador not in df_periodo.columns:
+        print(f"Columna {identificador} no encontrada en {periodo}.")
+        continue
+
+    # Realizar el merge con el DataFrame principal
+    df_merged = pd.merge(
+        RequerimientoCredito,
+        df_periodo[[identificador, 'EMAIL_INSTITUCIONAL', 'TELEFONO', 'CELULAR']],
+        left_on='Tercero',
+        right_on=identificador,
+        how='left'
+    )
+
+    # Actualizar las columnas si los valores en el nuevo cruce no son nulos
+    RequerimientoCredito['EMAIL_INSTITUCIONAL'] = df_merged[['EMAIL_INSTITUCIONAL_x', 'EMAIL_INSTITUCIONAL_y']].bfill(axis=1).iloc[:, 0]
+    RequerimientoCredito['TELEFONO'] = df_merged[['TELEFONO_x', 'TELEFONO_y']].bfill(axis=1).iloc[:, 0]
+    RequerimientoCredito['CELULAR'] = df_merged[['CELULAR_x', 'CELULAR_y']].bfill(axis=1).iloc[:, 0]
+
+    # Imprimir las columnas actuales de RequerimientoCredito para depuración
+    print(f"Columnas después del merge con {periodo}: {RequerimientoCredito.columns.tolist()}")
+
+    # Eliminar las columnas temporales del merge solo si están presentes
+    columns_to_drop = [identificador] + [col for col in ['EMAIL_INSTITUCIONAL_x', 'EMAIL_INSTITUCIONAL_y', 'TELEFONO_x', 'TELEFONO_y', 'CELULAR_x', 'CELULAR_y'] if col in RequerimientoCredito.columns]
+    print(f"Columnas a eliminar: {columns_to_drop}")  # Imprimir las columnas a eliminar
+    if columns_to_drop:
+        try:
+            RequerimientoCredito.drop(columns=columns_to_drop, inplace=True)
+        except KeyError as e:
+            print(f"Error al eliminar columnas: {e}")
+
+# Crear el DataFrame final con las columnas actualizadas
+df_resultado = RequerimientoCredito.copy()
+
+# Mostrar el DataFrame final
+print(df_resultado)
+
+# Si deseas guardar el DataFrame final en un archivo Excel
+df_resultado.to_excel('/content/Resultado_Final.xlsx', index=False)
